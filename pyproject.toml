@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "jirasync"
+version = "0.1.0"
+description = ""
+authors = ["Alexander Braverman Masis <abraverm@redhat.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+jira = {extras = ["cli"], version = "^3.5.2"}
+
+
+[tool.poetry.group.dev.dependencies]
+pyright = "^1.1.344"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
