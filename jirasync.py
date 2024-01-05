@@ -36,7 +36,7 @@ def configure_logging(destination_folder, log_level, verbose):
 
 
 def load_configuration():
-    config_file_path = os.getenv('JIRASYNC_CONFIG', '~/jirasync.conf')
+    config_file_path = os.getenv('JIRASYNC_CONFIG', '~/.jirasync.conf')
     config_file_path = os.path.expanduser(config_file_path)
 
     with open(config_file_path, 'r') as config_file:

@@ -37,8 +37,6 @@
       packages.${packageName} = jirasync;
       packages.default = self.packages.${system}.${packageName};
 
-      defaultPackage = self.packages.${system}.${packageName};
-
       devShells.default = pkgs.mkShell {
         buildInputs = [
           pkgs.poetry
