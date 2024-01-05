@@ -32,6 +32,12 @@
                     buildInputs = (old.buildInputs or [ ]) ++ [ super.sphinx ];
                   }
                 );
+              jira2markdown = super.jira2markdown.overridePythonAttrs
+                (
+                  old: {
+                    buildInputs = (old.buildInputs or [ ]) ++ [ super.poetry ];
+                  }
+                );
             });
         };
         default = self.packages.${system}.jirasync;

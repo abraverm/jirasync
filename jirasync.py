@@ -5,8 +5,65 @@ import argparse
 import os
 import sys
 import json
+import yaml
 from datetime import datetime
+import frontmatter
+from jinja2 import Environment, FileSystemLoader
+from jira2markdown import convert
+from jira2markdown.elements import MarkupElements
+from jira2markdown.markup.base import AbstractMarkup
+from jira2markdown.markup.links import Mention
+from jinja2.exceptions import TemplateSyntaxError, UndefinedError
+from typing import Tuple
 
+from string import punctuation
+
+from pyparsing import (
+    CaselessLiteral,
+    Char,
+    Combine,
+    FollowedBy,
+    Optional,
+    ParserElement,
+    ParseResults,
+    PrecededBy,
+    SkipTo,
+    StringEnd,
+    StringStart,
+    Suppress,
+    White,
+    Word,
+    alphanums,
+)
+
+
+class ObsidianMention(AbstractMarkup):
+    def action(self, tokens) -> str:
+        username = self.usernames.get(tokens.accountid)
+        return f"[[{tokens.accountid}]]" if username is None else f"[[/people/{username}]]"
+
+    @property
+    def expr(self) -> ParserElement:
+        MENTION = Combine(
+            "["
+            + Optional(
+                SkipTo("|", fail_on="]") + Suppress("|"),
+                default="",
+            )
+            + "~"
+            + Optional(CaselessLiteral("accountid:"))
+            + Word(alphanums + ":-").set_results_name("accountid")
+            + Optional(CaselessLiteral("@redhat.com"))
+            + "]",
+        )
+        return (
+            (StringStart() | Optional(PrecededBy(White(), retreat=1), default=" "))
+            + MENTION.set_parse_action(self.action)
+            + (
+                StringEnd()
+                | Optional(FollowedBy(White() | Char(punctuation, exclude_chars="[") | MENTION), default=" ")
+            )
+        )
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Jira Sync Script")
@@ -35,8 +92,7 @@ def configure_logging(destination_folder, log_level, verbose):
         console_handler.setLevel(log_level)
         console_handler.setFormatter(
             logging.Formatter(
-                "%(asctime)s - %(levelname)s - %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S"
+                "%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
             )
         )
         logging.getLogger().addHandler(console_handler)
@@ -106,7 +162,13 @@ def create_destination_folder(destination_folder):
     os.makedirs(destination_folder, exist_ok=True)
 
 
-def process_single_issue(client, issue, destination_folder):
+def jira2md_filter(value):
+    elements = MarkupElements()
+    elements.replace(Mention, ObsidianMention)
+    return convert(value, elements=elements)
+
+
+def process_single_issue(client, issue, destination_folder) -> bool:
     issue_key = issue.key
     date_format = "%Y-%m-%dT%H:%M:%S.%f%z"
     last_updated = datetime.strptime(issue.fields.updated, date_format)
@@ -123,30 +185,28 @@ def process_single_issue(client, issue, destination_folder):
 
         if last_updated <= local_last_updated:
             logging.debug(f"Skipping {issue_key} as it is not updated.")
-            return
+            return False
 
     with open(local_file_path, "w") as local_file:
         json.dump(client.issue(issue_key).raw, local_file, indent=2)
 
     logging.info(f"Updated {issue_key}.")
+    return True
 
 
-def fetch_and_store_issues(client, query, destination_folder, batch_size=50):
+def fetch_and_store_issues(client, query, destination_folder, batch_size=50) -> Tuple[list, list]:
     logging.info(f"Processing query '{query}")
     start_at = 0
     total = 0
     issues = []
+    updated_issues = []
     while start_at <= total:
         logging.debug(f"total: {total}, start_at: {start_at}")
         results_page = client.search_issues(
-            query,
-            startAt=start_at,
-            maxResults=batch_size,
-            fields=["key", "updated"]
+            query, startAt=start_at, maxResults=batch_size, fields=["key", "updated"]
         )
         if total not in [0, results_page.total]:
-            logging.warning(
-                f"Results changed? old: {total}, new: {results_page.total}")
+            logging.warning(f"Results changed? old: {total}, new: {results_page.total}")
         if total == 0 and results_page.total != 0:
             total = results_page.total
 
@@ -156,13 +216,18 @@ def fetch_and_store_issues(client, query, destination_folder, batch_size=50):
 
         start_at += batch_size
 
+    all_issues = []
     for issue in issues:
-        process_single_issue(client, issue, destination_folder)
+        all_issues.append(issue.key)
+        updated = process_single_issue(client, issue, destination_folder)
+        if updated:
+            updated_issues.append(issue.key)
 
     logging.info(f"Finished query '{query}")
+    return updated_issues, all_issues
 
 
-def get_jira_issues(config, args):
+def get_jira_issues(config, args) -> Tuple[list, list]:
     destination_folder = os.path.expanduser(config["destination_folder"])
     search_queries = config["search_queries"]
 
@@ -170,14 +235,90 @@ def get_jira_issues(config, args):
     configure_logging(destination_folder, config["log_level"], args.verbose)
     client = initialize_jira_client(config)
 
+    updated_issues = []
+    all_issues = []
     for query in search_queries:
-        fetch_and_store_issues(client, query, destination_folder)
+        updated, all = fetch_and_store_issues(client, query, destination_folder)
+        updated_issues.extend(updated)
+        all_issues.extend(all)
+
+    return updated_issues, all_issues
+
+
+def update_markdown_files(config: dict, updated_issues: list, all_issues: list):
+    # TODO: Improve this part with click or something
+    if config.get("markdown_destination") is None:
+        logging.info("markdown destination folder is undefined, skipping")
+        return
+
+    if config.get("markdown_template") is None:
+        logging.info("markdown template is undefined, skipping")
+        return
+
+    markdown_destination = os.path.expanduser(config["markdown_destination"])
+    markdown_template = os.path.expanduser(config["markdown_template"])
+    template_name = os.path.basename(markdown_template)
+    template_folder = os.path.dirname(markdown_template)
+    destination_folder = os.path.expanduser(config["destination_folder"])
+
+    create_destination_folder(markdown_destination)
+
+    env = Environment(loader=FileSystemLoader(template_folder))
+    env.filters['jira2md'] = jira2md_filter
+    env.filters['yaml'] = yaml.safe_dump
+    try:
+        template = env.get_template(template_name)
+    except TemplateSyntaxError as e:
+        logging.error(f"Failed loading the template {template_name}:\n{e}")
+        return
+
+    for issue in updated_issues:
+        with open(os.path.join(markdown_destination, f"{issue}.md")) as f:
+            old_content = frontmatter.load(f)
+
+        metadata = old_content.metadata
+        metadata.pop("jira")
+
+        with open(os.path.join(destination_folder, f"{issue}.json")) as f:
+            issue_data = json.load(f)
+
+        output = template.render(metadata=metadata, jira=issue_data)
+
+        with open(os.path.join(markdown_destination, f"{issue}.md"), "w") as f:
+            f.write(output)
+
+    # restore missing
+    file_list = []
+    for filename in os.listdir(markdown_destination):
+        if os.path.isfile(os.path.join(markdown_destination, filename)):
+            name_without_extension = os.path.splitext(filename)[0]
+            file_list.append(name_without_extension)
+
+    missing = set(all_issues) - set(file_list + updated_issues)
+
+    for restore in missing:
+        logging.info(f"Restoring missing markdown {restore}")
+        with open(os.path.join(destination_folder, f"{restore}.json")) as f:
+            issue_data = json.load(f)
+
+        output = ''
+        try:
+            output = template.render(jira=issue_data)
+        except UndefinedError as e:
+            logging.error(f"Undefined variable in the template: {e}")
+            continue
+        except TypeError as e:
+            logging.error(f"Unable to run filter: {e}")
+
+        with open(os.path.join(markdown_destination, f"{restore}.md"), "w") as f:
+            f.write(output)
 
 
 def main():
     args = parse_args()
     configuration = load_configuration()
-    get_jira_issues(configuration, args)
+    updated_issues, all_issues = get_jira_issues(configuration, args)
+    update_markdown_files(configuration, updated_issues, all_issues)
 
 
 if __name__ == "__main__":

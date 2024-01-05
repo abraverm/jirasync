@@ -505,6 +505,20 @@ opt = ["PyJWT", "filemagic (>=1.6)", "requests-jwt", "requests-kerberos"]
 test = ["MarkupSafe (>=0.23)", "PyYAML (>=5.1)", "docutils (>=0.12)", "flaky", "oauthlib", "parameterized (>=0.8.1)", "pytest (>=6.0.0)", "pytest-cache", "pytest-cov", "pytest-instafail", "pytest-sugar", "pytest-timeout (>=1.3.1)", "pytest-xdist (>=2.2)", "requests-mock", "requires.io", "tenacity", "wheel (>=0.24.0)", "xmlrunner (>=1.7.7)", "yanc (>=0.3.3)"]
 
 [[package]]
+name = "jira2markdown"
+version = "0.3.6"
+description = "Convert text from JIRA markup to Markdown using parsing expression grammars"
+optional = false
+python-versions = ">=3.7,<4.0"
+files = [
+    {file = "jira2markdown-0.3.6-py3-none-any.whl", hash = "sha256:d894815100147381a1684acfce13dc332bf9db3dfd3b7de7b9dc332d9321c275"},
+    {file = "jira2markdown-0.3.6.tar.gz", hash = "sha256:b014aafff46be65439339130d8413e1f17558dcb66051c77d519e30a3304e19f"},
+]
+
+[package.dependencies]
+pyparsing = "*"
+
+[[package]]
 name = "keyring"
 version = "24.3.0"
 description = "Store and access your passwords safely."
@@ -780,6 +794,20 @@ plugins = ["importlib-metadata"]
 windows-terminal = ["colorama (>=0.4.6)"]
 
 [[package]]
+name = "pyparsing"
+version = "3.1.1"
+description = "pyparsing module - Classes and methods to define and execute parsing grammars"
+optional = false
+python-versions = ">=3.6.8"
+files = [
+    {file = "pyparsing-3.1.1-py3-none-any.whl", hash = "sha256:32c7c0b711493c72ff18a981d24f28aaf9c1fb7ed5e9667c9e84e3db623bdbfb"},
+    {file = "pyparsing-3.1.1.tar.gz", hash = "sha256:ede28a1a32462f5a9705e07aea48001a08f7cf81a021585011deba701581a0db"},
+]
+
+[package.extras]
+diagrams = ["jinja2", "railroad-diagrams"]
+
+[[package]]
 name = "python-frontmatter"
 version = "1.0.1"
 description = "Parse and manage posts with YAML (or other) frontmatter"
@@ -1036,4 +1064,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "aaf20fed37611ff2244ab0f9d8475d0b5e26573d552562a00ccaa4db91721d19"
+content-hash = "9570f843782f811a016260392dc45dfcaa8fb11b6ea7a25ce6e652e6228ea69d"
