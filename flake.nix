@@ -18,23 +18,26 @@
       # pkgs = import nixpkgs { inherit system; };
       inherit (poetry2nix.lib.mkPoetry2Nix { inherit pkgs; }) mkPoetryApplication;
       inherit (poetry2nix.lib.mkPoetry2Nix { inherit pkgs; }) defaultPoetryOverrides;
+      jirasync = mkPoetryApplication {
+        projectDir = self;
+        overrides = defaultPoetryOverrides.extend
+          (self: super: {
+            sphinxcontrib-jquery = super.sphinxcontrib-jquery.overridePythonAttrs
+              (
+                old: {
+                  buildInputs = (old.buildInputs or [ ]) ++ [ super.sphinx ];
+                }
+              );
+          });
+      };
+
+      packageName = "jirasync";
     in 
     {
-      packages = {
-        jirasync = mkPoetryApplication {
-          projectDir = self;
-          overrides = defaultPoetryOverrides.extend
-            (self: super: {
-              sphinxcontrib-jquery = super.sphinxcontrib-jquery.overridePythonAttrs
-                (
-                  old: {
-                    buildInputs = (old.buildInputs or [ ]) ++ [ super.sphinx ];
-                  }
-                );
-            });
-        };
-        default = self.packages.${system}.jirasync;
-      };
+      packages.${packageName} = jirasync;
+      packages.default = self.packages.${system}.${packageName};
+
+      defaultPackage = self.packages.${system}.${packageName};
 
       devShells.default = pkgs.mkShell {
         buildInputs = [
