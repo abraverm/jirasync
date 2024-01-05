@@ -156,7 +156,11 @@ def get_jira_issues(config, args):
         fetch_and_store_issues(client, query, destination_folder)
 
 
-if __name__ == "__main__":
+def main():
     args = parse_args()
     configuration = load_configuration()
     get_jira_issues(configuration, args)
+
+
+if __name__ == "__main__":
+    main() 

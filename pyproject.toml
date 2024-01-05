@@ -14,4 +14,4 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-poetry = "poetry.console.application:main"
+jirasync = "jirasync:main"

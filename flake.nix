@@ -46,7 +46,7 @@
           poetry install
 
           # Activate the virtual environment
-          source .venv/bin/activate
+          # source .venv/bin/activate
         '';
       };
     });
