@@ -273,16 +273,19 @@ def update_markdown_files(config: dict, updated_issues: list, all_issues: list):
         return
 
     for issue in updated_issues:
-        with open(os.path.join(markdown_destination, f"{issue}.md")) as f:
-            old_content = frontmatter.load(f)
-
-        metadata = old_content.metadata
-        metadata.pop("jira")
-
         with open(os.path.join(destination_folder, f"{issue}.json")) as f:
             issue_data = json.load(f)
 
-        output = template.render(metadata=metadata, jira=issue_data)
+        if os.path.exists(os.path.join(markdown_destination, f"{issue}.md")):
+            with open(os.path.join(markdown_destination, f"{issue}.md")) as f:
+                old_content = frontmatter.load(f)
+
+            metadata = old_content.metadata
+            metadata.pop("jira")
+
+            output = template.render(metadata=metadata, jira=issue_data)
+        else:
+            output = template.render(jira=issue_data)
 
         with open(os.path.join(markdown_destination, f"{issue}.md"), "w") as f:
             f.write(output)
