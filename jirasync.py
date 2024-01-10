@@ -163,6 +163,8 @@ def create_destination_folder(destination_folder):
 
 
 def jira2md_filter(value):
+    if value is None:
+        return ''
     elements = MarkupElements()
     elements.replace(Mention, ObsidianMention)
     return convert(value, elements=elements)
