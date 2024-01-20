@@ -283,7 +283,10 @@ def update_markdown_files(config: dict, updated_issues: list, all_issues: list):
                 old_content = frontmatter.load(f)
 
             metadata = old_content.metadata
-            metadata.pop("jira")
+            try:
+                metadata.pop("jira")
+            except KeyError as e:
+                logging.debug(f"`jira` key not found in {issue}.md, ignoring")
 
             output = template.render(metadata=metadata, jira=issue_data)
         else:
