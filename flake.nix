@@ -13,12 +13,41 @@
   outputs = { self, nixpkgs, flake-utils, poetry2nix }:
   flake-utils.lib.eachDefaultSystem (system:
     let
-      pkgs = nixpkgs.legacyPackages.${system};
-      # What is more correct? ^ or >
-      # pkgs = import nixpkgs { inherit system; };
+      pkgs = import nixpkgs {
+        inherit system;
+        config.allowUnfree = true;
+      };
+
       inherit (poetry2nix.lib.mkPoetry2Nix { inherit pkgs; }) mkPoetryApplication;
       inherit (poetry2nix.lib.mkPoetry2Nix { inherit pkgs; }) defaultPoetryOverrides;
 
+      devEnv = let
+        name = "jirasync";
+        in (pkgs.buildFHSUserEnv {
+          inherit name;
+        targetPkgs = pkgs: (with pkgs; [
+          micromamba
+          poetry
+        ]);
+        runScript = "zsh";
+
+        profile = ''
+          eval "$(micromamba shell hook -s posix)"
+          export MAMBA_ROOT_PREFIX=./.mamba
+
+          if ! [[ -d .mamba ]]; then
+            if [[ -f "environment.yml" ]]; then
+              micromamba create -q -n ${name} -y -f environment.yml
+            else
+              micromamba create -q -n ${name} -y -c conda-forge python="3.12"
+              micromamba env export > environment.yml
+            fi
+          fi
+          micromamba activate ${name}
+          poetry install
+          export JIRASYNC_CONFIG="~/.jirasync.conf"
+        '';
+      }).env;
     in 
     {
       packages = {
@@ -43,19 +72,7 @@
         default = self.packages.${system}.jirasync;
       };
 
-      devShells.default = pkgs.mkShell {
-        buildInputs = [
-          pkgs.poetry
-          pkgs.python3
-        ];
-
-        shellHook = ''
-          poetry install
-
-          # Activate the virtual environment
-          source .venv/bin/activate
-        '';
-      };
+      devShells.default = devEnv;
     });
 }
 
