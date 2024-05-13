@@ -66,7 +66,7 @@
             then self.shortRev
             else self.dirtyShortRev;
           nativeBuildInputs = [poetry-core];
-          propagatedBuildInputs = [ poetry-core jira jinja2 python-frontmatter jira2markdown ];
+          propagatedBuildInputs = [ poetry-core jira jinja2 python-frontmatter jira2markdown packaging typing-extensions pyparsing];
 
           meta = {
             description = "Sync Jira issues to Markdown files";
