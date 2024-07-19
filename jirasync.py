@@ -6,6 +6,7 @@ import os
 import sys
 import json
 import yaml
+import hashlib
 from datetime import datetime
 import frontmatter
 from jinja2 import Environment, FileSystemLoader
@@ -196,12 +197,11 @@ def process_single_issue(client, issue, destination_folder) -> bool:
     return True
 
 
-def fetch_and_store_issues(client, query, destination_folder, batch_size=50) -> Tuple[list, list]:
+def fetch_and_store_issues(client, query, destination_folder, batch_size=50) -> list:
     logging.info(f"Processing query '{query}")
     start_at = 0
     total = 0
-    issues = []
-    updated_issues = []
+    results = []
     while start_at <= total:
         logging.debug(f"total: {total}, start_at: {start_at}")
         results_page = client.search_issues(
@@ -212,24 +212,22 @@ def fetch_and_store_issues(client, query, destination_folder, batch_size=50) -> 
         if total == 0 and results_page.total != 0:
             total = results_page.total
 
-        issues.extend(results_page)
+        results.extend(results_page)
         if results_page.isLast:
             break
 
         start_at += batch_size
 
-    all_issues = []
-    for issue in issues:
-        all_issues.append(issue.key)
-        updated = process_single_issue(client, issue, destination_folder)
-        if updated:
-            updated_issues.append(issue.key)
+    issues = []
+    for result in results:
+        issues.append(result.key)
+        process_single_issue(client, result, destination_folder)
 
     logging.info(f"Finished query '{query}")
-    return updated_issues, all_issues
+    return issues
 
 
-def get_jira_issues(config, args) -> Tuple[list, list]:
+def get_jira_issues(config, args) -> list:
     destination_folder = os.path.expanduser(config["destination_folder"])
     search_queries = config["search_queries"]
 
@@ -237,17 +235,21 @@ def get_jira_issues(config, args) -> Tuple[list, list]:
     configure_logging(destination_folder, config["log_level"], args.verbose)
     client = initialize_jira_client(config)
 
-    updated_issues = []
-    all_issues = []
+    issues = []
     for query in search_queries:
-        updated, all = fetch_and_store_issues(client, query, destination_folder)
-        updated_issues.extend(updated)
-        all_issues.extend(all)
+        fetched = fetch_and_store_issues(client, query, destination_folder)
+        issues.extend(fetched)
 
-    return updated_issues, all_issues
+    return issues
 
+def calculate_md5(file_path):
+    hasher = hashlib.md5()
+    with open(file_path, 'rb') as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
-def update_markdown_files(config: dict, updated_issues: list, all_issues: list):
+def update_markdown_files(config: dict, issues: list):
     # TODO: Improve this part with click or something
     if config.get("markdown_destination") is None:
         logging.info("markdown destination folder is undefined, skipping")
@@ -270,11 +272,12 @@ def update_markdown_files(config: dict, updated_issues: list, all_issues: list):
     env.filters['yaml'] = yaml.safe_dump
     try:
         template = env.get_template(template_name)
+        version = calculate_md5(markdown_template)
     except TemplateSyntaxError as e:
         logging.error(f"Failed loading the template {template_name}:\n{e}")
         return
 
-    for issue in updated_issues:
+    for issue in issues:
         with open(os.path.join(destination_folder, f"{issue}.json")) as f:
             issue_data = json.load(f)
 
@@ -283,50 +286,28 @@ def update_markdown_files(config: dict, updated_issues: list, all_issues: list):
                 old_content = frontmatter.load(f)
 
             metadata = old_content.metadata
-            try:
-                metadata.pop("jira")
-            except KeyError as e:
-                logging.debug(f"`jira` key not found in {issue}.md, ignoring")
+            tmp = metadata.copy()
+            for key in tmp.keys():
+                if key.startswith("jira"):
+                    metadata.pop(key)
 
-            output = template.render(metadata=metadata, jira=issue_data)
+            if metadata.get("template_version", "") != version:
+                output = template.render(metadata=metadata, version=version, jira=issue_data)
+            else:
+                logging.debug(f"{issue}.md is current")
+                continue
         else:
-            output = template.render(jira=issue_data)
+            output = template.render(version=version, jira=issue_data)
 
         with open(os.path.join(markdown_destination, f"{issue}.md"), "w") as f:
-            f.write(output)
-
-    # restore missing
-    file_list = []
-    for filename in os.listdir(markdown_destination):
-        if os.path.isfile(os.path.join(markdown_destination, filename)):
-            name_without_extension = os.path.splitext(filename)[0]
-            file_list.append(name_without_extension)
-
-    missing = set(all_issues) - set(file_list + updated_issues)
-
-    for restore in missing:
-        logging.info(f"Restoring missing markdown {restore}")
-        with open(os.path.join(destination_folder, f"{restore}.json")) as f:
-            issue_data = json.load(f)
-
-        output = ''
-        try:
-            output = template.render(jira=issue_data)
-        except UndefinedError as e:
-            logging.error(f"Undefined variable in the template: {e}")
-            continue
-        except TypeError as e:
-            logging.error(f"Unable to run filter: {e}")
-
-        with open(os.path.join(markdown_destination, f"{restore}.md"), "w") as f:
             f.write(output)
 
 
 def main():
     args = parse_args()
     configuration = load_configuration()
-    updated_issues, all_issues = get_jira_issues(configuration, args)
-    update_markdown_files(configuration, updated_issues, all_issues)
+    issues = get_jira_issues(configuration, args)
+    update_markdown_files(configuration, issues)
 
 
 if __name__ == "__main__":
