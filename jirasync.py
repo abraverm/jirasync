@@ -36,6 +36,7 @@ from pyparsing import (
     Word,
     alphanums,
 )
+import yaml.parser
 
 
 class ObsidianMention(AbstractMarkup):
@@ -283,7 +284,13 @@ def update_markdown_files(config: dict, issues: list):
 
         if os.path.exists(os.path.join(markdown_destination, f"{issue}.md")):
             with open(os.path.join(markdown_destination, f"{issue}.md")) as f:
-                old_content = frontmatter.load(f)
+                try:
+                    old_content = frontmatter.load(f)
+                except yaml.parser.ParserError as e:
+                    logging.error(f"Yaml parser failed to parse {issue}.md:\n{e}")
+                    continue
+                except Exception as e:
+                    logging.error(f"Frontmatter failed to parse {issue}.md:\n{e}")
 
             metadata = old_content.metadata
             tmp = metadata.copy()
