@@ -21,3 +21,16 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 jirasync = "jirasync:main"
+
+[tool.pixi.workspace]
+name = "jirasync"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[tool.pixi.activation.env]
+JIRASYNC_CONFIG = "~/.jirasync.conf"
+
+[tool.pixi.pypi-dependencies]
+jirasync = { path = ".", editable = true }
+
+[tool.pixi.tasks]
