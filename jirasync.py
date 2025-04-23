@@ -7,6 +7,7 @@ import sys
 import json
 import yaml
 import hashlib
+import time
 from datetime import datetime
 import frontmatter
 from jinja2 import Environment, FileSystemLoader
@@ -14,8 +15,7 @@ from jira2markdown import convert
 from jira2markdown.elements import MarkupElements
 from jira2markdown.markup.base import AbstractMarkup
 from jira2markdown.markup.links import Mention
-from jinja2.exceptions import TemplateSyntaxError, UndefinedError
-from typing import Tuple
+from jinja2.exceptions import TemplateSyntaxError
 
 from string import punctuation
 
@@ -26,7 +26,6 @@ from pyparsing import (
     FollowedBy,
     Optional,
     ParserElement,
-    ParseResults,
     PrecededBy,
     SkipTo,
     StringEnd,
@@ -180,19 +179,23 @@ def process_single_issue(client, issue, destination_folder) -> bool:
     local_file_path = os.path.join(destination_folder, f"{issue_key}.json")
 
     if os.path.exists(local_file_path):
-        with open(local_file_path, "r") as local_file:
-            local_data = json.load(local_file)
-
-        local_last_updated = datetime.strptime(
-            local_data["fields"]["updated"], date_format
-        )
-
-        if last_updated <= local_last_updated:
-            logging.debug(f"Skipping {issue_key} as it is not updated.")
-            return False
+        try:
+            with open(local_file_path, "r") as local_file:
+                local_data = json.load(local_file)
+            local_last_updated = datetime.strptime(
+                local_data["fields"]["updated"], date_format
+            )
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            logging.warning(f"Invalid or corrupt local JSON for {issue_key}, re-fetching.")
+        else:
+            if last_updated <= local_last_updated:
+                logging.debug(f"Skipping {issue_key} as it is not updated.")
+                return False
 
     with open(local_file_path, "w") as local_file:
-        json.dump(client.issue(issue_key).raw, local_file, indent=2)
+        issue_data = client.issue(issue_key)
+        json.dump(issue_data.raw, local_file, indent=2)
+        time.sleep(1)
 
     logging.info(f"Updated {issue_key}.")
     return True
@@ -205,6 +208,7 @@ def fetch_and_store_issues(client, query, destination_folder, batch_size=50) -> 
     results = []
     while start_at <= total:
         logging.debug(f"total: {total}, start_at: {start_at}")
+        time.sleep(1)
         results_page = client.search_issues(
             query, startAt=start_at, maxResults=batch_size, fields=["key", "updated"]
         )
@@ -282,15 +286,18 @@ def update_markdown_files(config: dict, issues: list):
         with open(os.path.join(destination_folder, f"{issue}.json")) as f:
             issue_data = json.load(f)
 
-        if os.path.exists(os.path.join(markdown_destination, f"{issue}.md")):
-            with open(os.path.join(markdown_destination, f"{issue}.md")) as f:
+        markdown_path = os.path.join(markdown_destination, f"{issue}.md")
+        if os.path.exists(markdown_path):
+            with open(markdown_path) as f:
                 try:
                     old_content = frontmatter.load(f)
                 except yaml.parser.ParserError as e:
-                    logging.error(f"Yaml parser failed to parse {issue}.md:\n{e}")
+                    logging.error(
+                        f"Yaml parser failed to parse {issue}.md:\n{e}")
                     continue
                 except Exception as e:
-                    logging.error(f"Frontmatter failed to parse {issue}.md:\n{e}")
+                    logging.error(
+                        f"Frontmatter failed to parse {issue}.md:\n{e}")
 
             metadata = old_content.metadata
             tmp = metadata.copy()
@@ -298,15 +305,24 @@ def update_markdown_files(config: dict, issues: list):
                 if key.startswith("jira"):
                     metadata.pop(key)
 
-            if metadata.get("template_version", "") != version:
-                output = template.render(metadata=metadata, version=version, jira=issue_data)
+            # Determine if we need to update based on template version or file modification time
+            current_mtime = os.path.getmtime(markdown_path)
+            raw_updated = metadata.get("updated", 0)
+            try:
+                updated = float(raw_updated)
+            except (TypeError, ValueError):
+                updated = 0
+            if metadata.get("template_version", "") != version or updated < current_mtime:
+                metadata["updated"] = time.time()
+                output = template.render(metadata=metadata, version=version,
+                                         jira=issue_data)
             else:
                 logging.debug(f"{issue}.md is current")
                 continue
         else:
             output = template.render(version=version, jira=issue_data)
 
-        with open(os.path.join(markdown_destination, f"{issue}.md"), "w") as f:
+        with open(markdown_path, "w") as f:
             f.write(output)
 
 

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "jirasync"
-version = "0.3.1"
+version = "0.3.2"
 description = ""
 authors = ["Alexander Braverman Masis <abraverm@redhat.com>"]
 readme = "README.md"
